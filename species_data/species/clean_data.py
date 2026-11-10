@@ -25,13 +25,6 @@ print(' after dropping rare species', len(ids), 'species:', len(np.unique(ids)))
 # File 1: all species kept, cleaned 
 np.savez('species_train_clean_all.npz', train_locs=locs, train_ids=ids, taxon_ids=data['taxon_ids'], taxon_names=data['taxon_names'])
 
-# File 2: only species with more than 10 records kept, cleaned
-vals,counts = np.unique(ids, return_counts=True)
-keep_species = vals[counts >= 10]
-m = np.isin(ids, keep_species)
-keep_taxa = np.isin(data['taxon_ids'], keep_species)
-np.savez('species_train_clean_filtered.npz', train_locs=locs, train_ids=ids[m], taxon_ids=data['taxon_ids'][keep_taxa], taxon_names=data['taxon_names'][keep_taxa])
-print('filtered:',m.sum(), 'points:', len(keep_species), 'species')
 
 
 
