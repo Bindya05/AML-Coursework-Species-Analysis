@@ -1,0 +1,84 @@
+PS C:\Users\indya\OneDrive\Desktop\Masters\AML\species_data\species> git commit -m "new model with better climate data"
+[main 6e9ba5d] new model with better climate data
+ 5 files changed, 23 insertions(+), 21 deletions(-)
+ delete mode 100644 species_data/species/climate_test.npy
+ create mode 100644 species_data/species/climate_test_sea.npy
+ delete mode 100644 species_data/species/climate_train.npy
+ create mode 100644 species_data/species/climate_train_sea.npy
+PS C:\Users\indya\OneDrive\Desktop\Masters\AML\species_data\species> git push                                          
+Enumerating objects: 11, done.
+Counting objects: 100% (11/11), done.
+Delta compression using up to 20 threads
+Compressing objects: 100% (5/5), done.
+Writing objects: 100% (7/7), 8.70 MiB | 3.38 MiB/s, done.
+Total 7 (delta 2), reused 0 (delta 0), pack-reused 0 (from 0)
+To https://github.com/Bindya05/AML-Coursework-Species-Analysis.git
+   f2a3e5d..6e9ba5d  main -> main
+PS C:\Users\indya\OneDrive\Desktop\Masters\AML\species_data\species> python species_climate_model_logistic.py          
+Alignment check (train): corr(BIO1, |latitude|) = -0.833
+Alignment check (test): corr(BIO1, |latitude|) = -0.886
+Test locations: 288122 (land: 85661, sea: 202461)
+True sightings: land 1325753, sea 380893, total 1706646
+Training locations: 139947 (sea: 504), species: 500
+Training sightings at sea locations: 507 of 147640
+
+Fitting baseline (lat/lon only)...
+Fitting climate model (lat/lon + bioclim + sea flag)...
+
+##### TEST SET: LAND ONLY #####
+
+--- Baseline: lat/lon only ---
+t=0.001  predicted positives=12026016  micro P=0.095 R=0.857 F1=0.170 | macro F1=0.129
+t=0.002  predicted positives=8287835   micro P=0.113 R=0.706 F1=0.195 | macro F1=0.126
+t=0.005  predicted positives=4811259   micro P=0.139 R=0.504 F1=0.218 | macro F1=0.109
+t=0.01   predicted positives=3107667   micro P=0.159 R=0.374 F1=0.224 | macro F1=0.092
+t=0.02   predicted positives=1918033   micro P=0.147 R=0.212 F1=0.173 | macro F1=0.059
+t=0.05   predicted positives=947066    micro P=0.119 R=0.085 F1=0.099 | macro F1=0.023
+t=0.1    predicted positives=515620    micro P=0.111 R=0.043 F1=0.062 | macro F1=0.013
+t=0.2    predicted positives=264213    micro P=0.094 R=0.019 F1=0.031 | macro F1=0.007
+t=0.3    predicted positives=168560    micro P=0.081 R=0.010 F1=0.018 | macro F1=0.004
+t=0.5    predicted positives=81343     micro P=0.062 R=0.004 F1=0.007 | macro F1=0.002
+
+--- lat/lon + climate + sea flag ---
+t=0.001  predicted positives=6732368   micro P=0.178 R=0.904 F1=0.297 | macro F1=0.231
+t=0.002  predicted positives=5126868   micro P=0.218 R=0.843 F1=0.347 | macro F1=0.269
+t=0.005  predicted positives=3445096   micro P=0.275 R=0.715 F1=0.398 | macro F1=0.304
+t=0.01   predicted positives=2453341   micro P=0.312 R=0.577 F1=0.405 | macro F1=0.303
+t=0.02   predicted positives=1660466   micro P=0.327 R=0.410 F1=0.364 | macro F1=0.271
+t=0.05   predicted positives=918248    micro P=0.290 R=0.201 F1=0.237 | macro F1=0.176
+t=0.1    predicted positives=569540    micro P=0.221 R=0.095 F1=0.133 | macro F1=0.096
+t=0.2    predicted positives=359999    micro P=0.135 R=0.037 F1=0.058 | macro F1=0.038
+t=0.3    predicted positives=280021    micro P=0.094 R=0.020 F1=0.033 | macro F1=0.020
+t=0.5    predicted positives=200442    micro P=0.049 R=0.007 F1=0.013 | macro F1=0.007
+
+##### TEST SET: LAND + SEA #####
+
+--- Baseline: lat/lon only ---
+t=0.001  predicted positives=48635817  micro P=0.030 R=0.867 F1=0.059 | macro F1=0.045
+t=0.002  predicted positives=35060241  micro P=0.035 R=0.713 F1=0.066 | macro F1=0.046
+t=0.005  predicted positives=21625638  micro P=0.037 R=0.475 F1=0.069 | macro F1=0.042
+t=0.01   predicted positives=14467278  micro P=0.040 R=0.340 F1=0.072 | macro F1=0.037
+t=0.02   predicted positives=9344432   micro P=0.037 R=0.202 F1=0.062 | macro F1=0.028
+t=0.05   predicted positives=4813529   micro P=0.032 R=0.092 F1=0.048 | macro F1=0.015
+t=0.1    predicted positives=2743735   micro P=0.033 R=0.054 F1=0.041 | macro F1=0.010
+t=0.2    predicted positives=1441471   micro P=0.036 R=0.030 F1=0.033 | macro F1=0.006
+t=0.3    predicted positives=899193    micro P=0.038 R=0.020 F1=0.026 | macro F1=0.004
+t=0.5    predicted positives=391984    micro P=0.046 R=0.011 F1=0.017 | macro F1=0.002
+
+--- lat/lon + climate + sea flag ---
+t=0.001  predicted positives=13354869  micro P=0.117 R=0.913 F1=0.207 | macro F1=0.158
+t=0.002  predicted positives=10233001  micro P=0.144 R=0.864 F1=0.247 | macro F1=0.187
+t=0.005  predicted positives=7028553   micro P=0.185 R=0.761 F1=0.297 | macro F1=0.216
+t=0.01   predicted positives=5187882   micro P=0.213 R=0.648 F1=0.321 | macro F1=0.218
+t=0.02   predicted positives=3767405   micro P=0.232 R=0.512 F1=0.319 | macro F1=0.194
+t=0.05   predicted positives=2442127   micro P=0.236 R=0.338 F1=0.278 | macro F1=0.127
+t=0.1    predicted positives=1760162   micro P=0.235 R=0.242 F1=0.238 | macro F1=0.071
+t=0.2    predicted positives=1275137   micro P=0.231 R=0.173 F1=0.198 | macro F1=0.031
+t=0.3    predicted positives=1050665   micro P=0.233 R=0.143 F1=0.178 | macro F1=0.018
+t=0.5    predicted positives=790141    micro P=0.233 R=0.108 F1=0.147 | macro F1=0.010
+
+=== Summary: best threshold by micro F1 ===
+LAND ONLY    | Baseline (lat/lon)  : best micro F1=0.2236 at t=0.01 (micro P=0.1595, R=0.3738, macro F1=0.0923)
+LAND ONLY    | Climate + sea flag  : best micro F1=0.4045 at t=0.01 (micro P=0.3116, R=0.5766, macro F1=0.3028)
+LAND + SEA   | Baseline (lat/lon)  : best micro F1=0.0717 at t=0.01 (micro P=0.0401, R=0.3399, macro F1=0.0372)
+LAND + SEA   | Climate + sea flag  : best micro F1=0.3209 at t=0.01 (micro P=0.2132, R=0.6481, macro F1=0.2180)
