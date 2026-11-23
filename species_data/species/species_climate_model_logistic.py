@@ -3,17 +3,19 @@ Species presence model, trained on the cleaned training file and scored on the I
 
 Two models, each one logistic regression per species:
   - Baseline: latitude and longitude only
-  - Climate:  latitude, longitude and the 19 WorldClim bioclim variables
+  - Climate:  latitude, longitude, the 19 WorldClim bioclim variables and a sea flag
 
 Each species gets its own logistic regression, fitted in a plain loop. (sklearn's
 OneVsRestClassifier gave different species identical weights in our run, so it is not used.)
 
+Each model is scored on two views of the test set:
+  - LAND ONLY:      test locations on land
+  - LAND + SEA:     every test location, including those at sea
+
 The climate files have 20 columns: the 19 bioclim variables and a sea flag (1 = sea, 0 = land).
-Every test location is scored, and the model can learn from the sea flag.
 
 Files needed in the same folder:
     species_train_clean_all.npz, species_test.npz, climate_train_sea.npy, climate_test_sea.npy
-(the climate files must be the new 20-column versions)
 
 Usage:
     python species_climate_model_logistic.py
@@ -129,25 +131,31 @@ def make_model():
     ])
 
 
-def score_on_test(model, X_test, Y_test):
-    """Count true positives and predicted positives at each threshold, in chunks."""
+def score_both(model, X_test, Y_test, sea):
+    """Count true and predicted positives at each threshold, for land only and for land + sea.
+    Returns {'land': (tp, pred, pos), 'all': (tp, pred, pos)}."""
     n_t, n_s = len(THRESHOLDS), Y_test.shape[1]
-    tp = np.zeros((n_t, n_s))
-    pred = np.zeros((n_t, n_s))
+    tp = {v: np.zeros((n_t, n_s)) for v in ('land', 'all')}
+    pred = {v: np.zeros((n_t, n_s)) for v in ('land', 'all')}
     for start in range(0, len(X_test), CHUNK):
         sl = slice(start, start + CHUNK)
         proba = model.predict_proba(X_test[sl])
         Yc = Y_test[sl]
+        land_c = ~sea[sl]
         for k, t in enumerate(THRESHOLDS):
             flagged = proba >= t
-            tp[k] += (flagged & Yc).sum(axis=0)
-            pred[k] += flagged.sum(axis=0)
-    pos = Y_test.sum(axis=0).astype(float)
-    return tp, pred, pos
+            hits = flagged & Yc
+            tp['all'][k] += hits.sum(axis=0)
+            pred['all'][k] += flagged.sum(axis=0)
+            tp['land'][k] += hits[land_c].sum(axis=0)
+            pred['land'][k] += flagged[land_c].sum(axis=0)
+    pos = {'all': Y_test.sum(axis=0).astype(float),
+           'land': Y_test[~sea].sum(axis=0).astype(float)}
+    return {v: (tp[v], pred[v], pos[v]) for v in ('land', 'all')}
 
 
 def report(name, tp, pred, pos):
-    print(f"\n=== {name}: test set ===")
+    print(f"\n--- {name} ---")
     rows = []
     total_pos = pos.sum()
     for k, t in enumerate(THRESHOLDS):
@@ -158,15 +166,19 @@ def report(name, tp, pred, pos):
         micro_f1 = 2 * TP / (P_all + total_pos) if (P_all + total_pos) else 0.0
         denom = pred[k] + pos
         per_species_f1 = np.divide(2 * tp[k], denom, out=np.zeros_like(denom), where=denom > 0)
-        macro_f1 = per_species_f1[pos > 0].mean()  # species with no test sightings are left out
+        macro_f1 = per_species_f1[pos > 0].mean()  # species with no sightings in this view are left out
         rows.append((t, micro_f1, micro_p, micro_r, macro_f1))
         print(f"t={t:<6} predicted positives={int(P_all):<9} "
               f"micro P={micro_p:.3f} R={micro_r:.3f} F1={micro_f1:.3f} | macro F1={macro_f1:.3f}")
     return rows
 
 
+def best_row(rows):
+    return max(rows, key=lambda r: r[1])
+
+
 def print_best(name, rows):
-    t, micro_f1, micro_p, micro_r, macro_f1 = max(rows, key=lambda r: r[1])
+    t, micro_f1, micro_p, micro_r, macro_f1 = best_row(rows)
     print(f"{name}: best micro F1={micro_f1:.4f} at t={t} "
           f"(micro P={micro_p:.4f}, R={micro_r:.4f}, macro F1={macro_f1:.4f})")
 
@@ -179,43 +191,48 @@ def main():
     check_alignment('train', locs, climate_train)
     X_latlon, X_clim_loc, Y, train_species = build_train_table(locs, ids, climate_train)
 
-    # Test data
+    # Test data: every location is kept, so the sea and land views can be compared
     test = np.load(TEST_FILE, allow_pickle=True)
     test_locs = test['test_locs'].astype(np.float64)
     test_species = test['taxon_ids']
     test_pos_inds = test['test_pos_inds']
     climate_test = load_climate(CLIMATE_TEST, len(test_locs))
-
-    Y_test = build_test_labels(test_pos_inds, test_species, train_species, len(test_locs))
-
-    # Every test location is kept. The sea flag (last climate column) lets the model learn sea.
-    sea_test = climate_test[:, -1] == 1
-    sea_train = X_clim_loc[:, -1] == 1
-    print(f"\nTest locations: {len(test_locs)} (sea: {int(sea_test.sum())}, land: {int((~sea_test).sum())})")
-    print(f"True sightings at sea test locations: {int(Y_test[sea_test].sum())} of {int(Y_test.sum())}")
     check_alignment('test', test_locs, climate_test)
 
-    print(f"\nTraining locations: {len(X_latlon)} (sea: {int(sea_train.sum())}), "
-          f"species: {Y.shape[1]}, climate features: {X_clim_loc.shape[1]}")
+    Y_test = build_test_labels(test_pos_inds, test_species, train_species, len(test_locs))
+    sea_test = climate_test[:, -1] == 1
+    sea_train = X_clim_loc[:, -1] == 1
+
+    print(f"Test locations: {len(test_locs)} (land: {int((~sea_test).sum())}, "
+          f"sea: {int(sea_test.sum())})")
+    print(f"True sightings: land {int(Y_test[~sea_test].sum())}, "
+          f"sea {int(Y_test[sea_test].sum())}, total {int(Y_test.sum())}")
+    print(f"Training locations: {len(X_latlon)} (sea: {int(sea_train.sum())}), "
+          f"species: {Y.shape[1]}")
     print(f"Training sightings at sea locations: {int(Y[sea_train].sum())} of {int(Y.sum())}")
 
     # Baseline: latitude and longitude only
     print("\nFitting baseline (lat/lon only)...")
     base_model = make_model().fit(X_latlon, Y)
-    base_rows = report('Baseline: lat/lon only',
-                       *score_on_test(base_model, test_locs, Y_test))
+    base_stats = score_both(base_model, test_locs, Y_test, sea_test)
 
-    # Climate: latitude, longitude and climate
-    print("\nFitting climate model (lat/lon + bioclim)...")
-    X_climate = np.hstack([X_latlon, X_clim_loc])
-    clim_model = make_model().fit(X_climate, Y)
-    X_test_climate = np.hstack([test_locs, climate_test])
-    clim_rows = report('lat/lon + climate',
-                       *score_on_test(clim_model, X_test_climate, Y_test))
+    # Climate: latitude, longitude, climate and sea flag
+    print("Fitting climate model (lat/lon + bioclim + sea flag)...")
+    clim_model = make_model().fit(np.hstack([X_latlon, X_clim_loc]), Y)
+    clim_stats = score_both(clim_model, np.hstack([test_locs, climate_test]), Y_test, sea_test)
 
-    print("\n=== Summary (test set, best threshold by micro F1) ===")
-    print_best('Baseline (lat/lon)   ', base_rows)
-    print_best('With climate features', clim_rows)
+    summary = []
+    views = [('land', 'LAND ONLY'), ('all', 'LAND + SEA')]
+    for view, title in views:
+        print(f"\n##### TEST SET: {title} #####")
+        base_rows = report('Baseline: lat/lon only', *base_stats[view])
+        clim_rows = report('lat/lon + climate + sea flag', *clim_stats[view])
+        summary.append((title, 'Baseline (lat/lon)', base_rows))
+        summary.append((title, 'Climate + sea flag', clim_rows))
+
+    print("\n=== Summary: best threshold by micro F1 ===")
+    for title, name, rows in summary:
+        print_best(f"{title:<12} | {name:<20}", rows)
 
 
 if __name__ == '__main__':
