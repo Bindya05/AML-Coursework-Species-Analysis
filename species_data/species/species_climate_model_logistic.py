@@ -8,11 +8,12 @@ Two models, each one logistic regression per species:
 Each species gets its own logistic regression, fitted in a plain loop. (sklearn's
 OneVsRestClassifier gave different species identical weights in our run, so it is not used.)
 
-Test locations with no climate data (sea, or outside WorldClim coverage) are left out of
-the test scoring for BOTH models, so the two are compared on the same land locations.
+The climate files have 20 columns: the 19 bioclim variables and a sea flag (1 = sea, 0 = land).
+Every test location is scored, and the model can learn from the sea flag.
 
 Files needed in the same folder:
-    species_train_clean_all.npz, species_test.npz, climate_train.npy, climate_test.npy
+    species_train_clean_all.npz, species_test.npz, climate_train_sea.npy, climate_test_sea.npy
+(the climate files must be the new 20-column versions)
 
 Usage:
     python species_climate_model_logistic.py
@@ -28,12 +29,12 @@ from sklearn.preprocessing import StandardScaler
 
 TRAIN_FILE = 'species_train_clean_all.npz'
 TEST_FILE = 'species_test.npz'
-CLIMATE_TRAIN = 'climate_train.npy'
-CLIMATE_TEST = 'climate_test.npy'
+CLIMATE_TRAIN = 'climate_train_sea.npy'
+CLIMATE_TEST = 'climate_test_sea.npy'
 
 THRESHOLDS = [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.3, 0.5]
 CHUNK = 20000  # test rows scored at a time, to keep memory down
-CLIMATE_COLS = [f'bio{i}' for i in range(1, 20)]
+CLIMATE_COLS = [f'bio{i}' for i in range(1, 20)] + ['sea']  # last column: 1 = sea, 0 = land
 
 
 class PerSpeciesLogistic(BaseEstimator):
@@ -55,11 +56,14 @@ class PerSpeciesLogistic(BaseEstimator):
 
 
 def load_climate(path, n_rows):
-    """Load a climate matrix and check it has one row per record/location.
-    Missing values (NaN) are allowed here; the caller decides what to do with them."""
+    """Load a climate matrix: 19 bioclim columns plus a sea flag, one row per record/location."""
     climate = np.load(path).astype(np.float64)
     if climate.shape[0] != n_rows:
         raise ValueError(f"{path} has {climate.shape[0]} rows, expected {n_rows}.")
+    if climate.shape[1] != len(CLIMATE_COLS):
+        raise ValueError(f"{path} has {climate.shape[1]} columns, expected {len(CLIMATE_COLS)}.")
+    if not np.isfinite(climate).all():
+        raise ValueError(f"{path} contains NaN or inf values.")
     return climate
 
 
@@ -144,7 +148,6 @@ def score_on_test(model, X_test, Y_test):
 
 def report(name, tp, pred, pos):
     print(f"\n=== {name}: test set ===")
-    print(f"{'t':<8}{'pred+':>12}{'microP':>9}{'microR':>9}{'microF1':>9}{'macroF1':>9}")
     rows = []
     total_pos = pos.sum()
     for k, t in enumerate(THRESHOLDS):
@@ -155,9 +158,10 @@ def report(name, tp, pred, pos):
         micro_f1 = 2 * TP / (P_all + total_pos) if (P_all + total_pos) else 0.0
         denom = pred[k] + pos
         per_species_f1 = np.divide(2 * tp[k], denom, out=np.zeros_like(denom), where=denom > 0)
-        macro_f1 = per_species_f1.mean()
+        macro_f1 = per_species_f1[pos > 0].mean()  # species with no test sightings are left out
         rows.append((t, micro_f1, micro_p, micro_r, macro_f1))
-        print(f"{t:<8}{int(P_all):>12}{micro_p:>9.3f}{micro_r:>9.3f}{micro_f1:>9.3f}{macro_f1:>9.3f}")
+        print(f"t={t:<6} predicted positives={int(P_all):<9} "
+              f"micro P={micro_p:.3f} R={micro_r:.3f} F1={micro_f1:.3f} | macro F1={macro_f1:.3f}")
     return rows
 
 
@@ -184,18 +188,16 @@ def main():
 
     Y_test = build_test_labels(test_pos_inds, test_species, train_species, len(test_locs))
 
-    # Drop test locations with no climate data (sea or outside WorldClim) for both models.
-    no_climate = ~np.isfinite(climate_test).all(axis=1)
-    print(f"\nTest locations with no climate data (dropped from scoring): {int(no_climate.sum())}")
-    print(f"True sightings at those locations (dropped): {int(Y_test[no_climate].sum())}")
-    test_locs = test_locs[~no_climate]
-    climate_test = climate_test[~no_climate]
-    Y_test = Y_test[~no_climate]
+    # Every test location is kept. The sea flag (last climate column) lets the model learn sea.
+    sea_test = climate_test[:, -1] == 1
+    sea_train = X_clim_loc[:, -1] == 1
+    print(f"\nTest locations: {len(test_locs)} (sea: {int(sea_test.sum())}, land: {int((~sea_test).sum())})")
+    print(f"True sightings at sea test locations: {int(Y_test[sea_test].sum())} of {int(Y_test.sum())}")
     check_alignment('test', test_locs, climate_test)
 
-    print(f"\nTraining locations: {len(X_latlon)}, species: {Y.shape[1]}, "
-          f"climate features: {X_clim_loc.shape[1]}")
-    print(f"Test land locations: {len(test_locs)}, positive test cells: {int(Y_test.sum())}")
+    print(f"\nTraining locations: {len(X_latlon)} (sea: {int(sea_train.sum())}), "
+          f"species: {Y.shape[1]}, climate features: {X_clim_loc.shape[1]}")
+    print(f"Training sightings at sea locations: {int(Y[sea_train].sum())} of {int(Y.sum())}")
 
     # Baseline: latitude and longitude only
     print("\nFitting baseline (lat/lon only)...")
