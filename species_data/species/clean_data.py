@@ -19,7 +19,7 @@ print('after dropping duplicates:', len(ids))
 cell = np.floor(locs / 0.05).astype(int)
 _, idx = np.unique(np.column_stack([cell, ids]), axis=0, return_index=True)
 locs, ids = locs[idx], ids[idx]
-print(' after dropping rare species', len(ids), 'species:', len(np.unique(ids)))
+print('after thinning species', len(ids), 'species:', len(np.unique(ids)))
 
 
 # File 1: all species kept, cleaned 
