@@ -1,10 +1,13 @@
 import numpy as np
 import pandas as pd
+from iterstrat.ml_stratifiers import MultilabelStratifiedShuffleSplit
 from sklearn.base import BaseEstimator
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import average_precision_score
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
+from sklearn.ensemble import RandomForestClassifier
+import sys
 
 # ---- File names -------------------------------------------------------------
 TRAIN_FILE = 'species_train_clean_all.npz'
@@ -15,9 +18,18 @@ CLIMATE_TEST = 'climate_test_sea.npy'
 # ---- Settings ---------------------------------------------------------------
 VALIDATION_FRACTION = 1 / 8   # share of training locations held back for validation
 RANDOM_STATE = 42             # fixed seed, so the random split is the same every run
-THRESHOLDS = [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.3, 0.5]
+THRESHOLDS = [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.3, 0.5, 0.6, 0.7, 0.8, 0.9]
 CHUNK = 20000                 # rows scored at a time, to keep memory down
 CLIMATE_COLS = [f'bio{i}' for i in range(1, 20)] + ['sea']  # 19 bioclim variables + sea flag (1 = sea)
+MODEL = sys.argv[1] if len(sys.argv) > 1 else 'logistic'  # which model to run: 
+RF_GRID = [
+    dict(neg_ratio=4, n_estimators=50,  min_samples_leaf=5),   # current settings
+    dict(neg_ratio=2, n_estimators=50,  min_samples_leaf=5),
+    dict(neg_ratio=8, n_estimators=50,  min_samples_leaf=5),
+    dict(neg_ratio=4, n_estimators=50,  min_samples_leaf=1),
+    dict(neg_ratio=4, n_estimators=50,  min_samples_leaf=20),
+    dict(neg_ratio=4, n_estimators=100, min_samples_leaf=5),
+]
 
 
 # ---- The model --------------------------------------------------------------
@@ -43,8 +55,45 @@ class PerSpeciesLogistic(BaseEstimator):
         return np.column_stack([m.predict_proba(X)[:, 1] for m in self.models_])
 
 
-def make_model():
+
+class PerSpeciesRF(BaseEstimator):
+    """One random forest per species: its locations (1) vs a random sample of other locations (0)."""
+    def __init__(self, neg_ratio=4, n_estimators=50, min_samples_leaf=5):
+        self.neg_ratio = neg_ratio
+        self.n_estimators = n_estimators
+        self.min_samples_leaf = min_samples_leaf
+
+    def fit(self, X, Y):
+        rng = np.random.default_rng(0)
+        self.models_ = []
+        for j in range(Y.shape[1]):
+            if j % 50 == 0:
+                print(f'{j}/{Y.shape[1]} species done')
+            positives = np.where(Y[:, j] == 1)[0]
+            if len(positives) == 0:
+                self.models_.append(None)      # no sightings in the fitting split
+                continue
+            others = np.where(Y[:, j] == 0)[0]
+            negatives = rng.choice(others, size=min(self.neg_ratio * len(positives), len(others)), replace=False)
+
+            Xj = np.concatenate([X[positives], X[negatives]])
+            yj = np.concatenate([np.ones(len(positives)), np.zeros(len(negatives))])
+
+            rf = RandomForestClassifier(n_estimators=self.n_estimators, min_samples_leaf=self.min_samples_leaf,
+                                        class_weight='balanced', n_jobs=-1, random_state=0)
+            self.models_.append(rf.fit(Xj, yj))
+        return self
+
+    def predict_proba(self, X):
+        return np.column_stack([m.predict_proba(X)[:, 1] if m is not None else np.zeros(len(X))
+                                for m in self.models_])
+
+
+
+def make_model(params=None):
     """Scale the inputs to a common size, then fit one logistic regression per species."""
+    if MODEL == 'rf':
+        return PerSpeciesRF(**(params or RF_GRID[0]))
     return Pipeline([
         ('scaler', StandardScaler()),
         ('classifier', PerSpeciesLogistic(C=1.0, max_iter=1000)),
@@ -131,15 +180,17 @@ def build_test_labels(test_pos_inds, test_species, train_species, n_test):
     return Y_test
 
 
-def split_training_locations(n_locations):
-    """Pick 1/8 of the training locations at random for validation, and keep the rest for fitting.
-    The seed is fixed, so the same locations are chosen every time."""
-    rng = np.random.default_rng(RANDOM_STATE)
-    order = rng.permutation(n_locations)
-    n_val = int(round(n_locations * VALIDATION_FRACTION))
-    val_idx = np.sort(order[:n_val])
-    fit_idx = np.sort(order[n_val:])
-    return fit_idx, val_idx
+def split_training_locations(X, Y):
+    """Pick 1/8 of the training locations for validation, and keep the rest for fitting.
+    The split is stratified on the species labels (multilabel), so validation has a similar
+    mix of species to fitting. The seed is fixed, so the same locations are chosen every time."""
+    msss = MultilabelStratifiedShuffleSplit(
+        n_splits=1,
+        test_size=VALIDATION_FRACTION,
+        random_state=RANDOM_STATE,
+    )
+    fit_idx, val_idx = next(msss.split(X, Y))
+    return np.sort(fit_idx), np.sort(val_idx)
 
 
 # ---- Scoring -----------------------------------------------------------------
@@ -278,7 +329,7 @@ def main():
     sea_loc = X_clim[:, -1] == 1  # which training locations are at sea
 
     # Step 3: choose 1/8 of the locations for validation, and keep the rest for fitting
-    fit_idx, val_idx = split_training_locations(len(X_latlon))
+    fit_idx, val_idx = split_training_locations(X_latlon, Y)
     print(f"\nTraining locations: {len(X_latlon)} "
           f"(fitting: {len(fit_idx)}, validation: {len(val_idx)})")
 
@@ -288,10 +339,30 @@ def main():
     base_model = make_model().fit(X_base[fit_idx], Y[fit_idx])
     print("Fitting climate model (lat/lon + bioclim + sea flag)...")
     X_clim_all = np.hstack([X_latlon, X_clim])
-    clim_model = make_model().fit(X_clim_all[fit_idx], Y[fit_idx])
+    
+    if MODEL == 'rf':
+        # Tune on validation: fit each setting on the fitting locations, keep the best by micro F1
+        best = None
+        for params in RF_GRID:
+            m = make_model(params).fit(X_clim_all[fit_idx], Y[fit_idx])
+            rows = report('', *score_both(m, X_clim_all[val_idx], Y[val_idx], sea_loc[val_idx])['all'], show=False)
+            f1_val = max(r[1] for r in rows)
+            t_best = best_threshold(rows)
+            edge = '  (top of grid: optimum may be higher)' if t_best == THRESHOLDS[-1] else ''
+            print(f"{params} best validation micro F1 = {f1_val:.4f} at t={t_best} (best within grid){edge}")
+            if best is None or f1_val > best[0]:
+                best = (f1_val, params, m)
+        print(f"Chosen settings: {best[1]}")
+        clim_model = best[2]                        # already fitted, reuse it
+        base_model = make_model(best[1]).fit(X_base[fit_idx], Y[fit_idx])
+    else:
+        print("Fitting baseline (lat/lon only)...")
+        base_model = make_model().fit(X_base[fit_idx], Y[fit_idx])
+        print("Fitting climate model (lat/lon + bioclim + sea flag)...")
+        clim_model = make_model().fit(X_clim_all[fit_idx], Y[fit_idx])
 
     # Step 5: validation. Score every threshold on the held-out locations and pick the best.
-    # The validation scores are used only to pick the threshold.
+    # The validation scores are used only to pick the threshold, so they are not printed.
     val_base = score_both(base_model, X_base[val_idx], Y[val_idx], sea_loc[val_idx])['all']
     val_clim = score_both(clim_model, X_clim_all[val_idx], Y[val_idx], sea_loc[val_idx])['all']
     val_rows_base = report('Validation: baseline (lat/lon only)', *val_base, show=False)
@@ -299,6 +370,10 @@ def main():
     t_base = best_threshold(val_rows_base)
     t_clim = best_threshold(val_rows_clim)
     print(f"Threshold chosen on validation: baseline t={t_base}, climate t={t_clim}")
+    for name, t in [('baseline', t_base), ('climate', t_clim)]:
+        if t in (THRESHOLDS[0], THRESHOLDS[-1]):
+            print(f"WARNING: the {name} threshold is at the edge of THRESHOLDS ({t}); "
+                  f"the best value may lie outside the grid.")
 
     # Step 6: the IUCN test set. Nothing about the model is changed after this point.
     test = np.load(TEST_FILE, allow_pickle=True)
@@ -309,6 +384,8 @@ def main():
     check_alignment('test', test_locs, climate_test)
     Y_test = build_test_labels(test_pos_inds, test_species, train_species, len(test_locs))
     sea_test = climate_test[:, -1] == 1
+    n_unmatched = len(set(int(s) for s in test_species) - set(int(s) for s in train_species))
+    print(f"Test species not in training data (not scored): {n_unmatched}")
 
     print(f"\nTest locations: {len(test_locs)} (land: {int((~sea_test).sum())}, "
           f"sea: {int(sea_test.sum())})")
