@@ -1,7 +1,8 @@
-Model: rf  threshold grid: [0.5, 0.6, 0.7, 0.8, 0.9]
+Model: rf  threshold grid: [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
 Alignment check (train): corr(BIO1, |latitude|) = -0.833
+Spatial block split: validation holds 19.2% of locations; 493 of 500 species have sightings in the fitting part.
 
-Training locations: 139947 (fitting: 122443, validation: 17504)
+Training locations: 139947 (fitting: 113009, validation: 26938)
 0/500 species done
 50/500 species done
 100/500 species done
@@ -12,7 +13,7 @@ Training locations: 139947 (fitting: 122443, validation: 17504)
 350/500 species done
 400/500 species done
 450/500 species done
-{'neg_ratio': 4, 'n_estimators': 50, 'min_samples_leaf': 5} validation micro F1 = 0.1392 at t=0.9
+{'neg_ratio': 4, 'n_estimators': 50, 'min_samples_leaf': 5} validation mean AP = 0.0969
 0/500 species done
 50/500 species done
 100/500 species done
@@ -23,7 +24,7 @@ Training locations: 139947 (fitting: 122443, validation: 17504)
 350/500 species done
 400/500 species done
 450/500 species done
-{'neg_ratio': 2, 'n_estimators': 50, 'min_samples_leaf': 5} validation micro F1 = 0.1338 at t=0.9
+{'neg_ratio': 2, 'n_estimators': 50, 'min_samples_leaf': 5} validation mean AP = 0.0918
 0/500 species done
 50/500 species done
 100/500 species done
@@ -34,7 +35,7 @@ Training locations: 139947 (fitting: 122443, validation: 17504)
 350/500 species done
 400/500 species done
 450/500 species done
-{'neg_ratio': 8, 'n_estimators': 50, 'min_samples_leaf': 5} validation micro F1 = 0.1450 at t=0.9
+{'neg_ratio': 8, 'n_estimators': 50, 'min_samples_leaf': 5} validation mean AP = 0.1002
 0/500 species done
 50/500 species done
 100/500 species done
@@ -45,7 +46,7 @@ Training locations: 139947 (fitting: 122443, validation: 17504)
 350/500 species done
 400/500 species done
 450/500 species done
-{'neg_ratio': 4, 'n_estimators': 50, 'min_samples_leaf': 1} validation micro F1 = 0.1266 at t=0.9
+{'neg_ratio': 4, 'n_estimators': 50, 'min_samples_leaf': 1} validation mean AP = 0.0938
 0/500 species done
 50/500 species done
 100/500 species done
@@ -56,7 +57,7 @@ Training locations: 139947 (fitting: 122443, validation: 17504)
 350/500 species done
 400/500 species done
 450/500 species done
-{'neg_ratio': 4, 'n_estimators': 50, 'min_samples_leaf': 20} validation micro F1 = 0.1494 at t=0.9
+{'neg_ratio': 4, 'n_estimators': 50, 'min_samples_leaf': 20} validation mean AP = 0.0809
 0/500 species done
 50/500 species done
 100/500 species done
@@ -67,8 +68,8 @@ Training locations: 139947 (fitting: 122443, validation: 17504)
 350/500 species done
 400/500 species done
 450/500 species done
-{'neg_ratio': 4, 'n_estimators': 100, 'min_samples_leaf': 5} validation micro F1 = 0.1408 at t=0.9
-Chosen settings: {'neg_ratio': 4, 'n_estimators': 50, 'min_samples_leaf': 20}
+{'neg_ratio': 4, 'n_estimators': 100, 'min_samples_leaf': 5} validation mean AP = 0.0956
+Chosen settings: {'neg_ratio': 8, 'n_estimators': 50, 'min_samples_leaf': 5} (validation mean AP 0.1002)
 0/500 species done
 50/500 species done
 100/500 species done
@@ -79,9 +80,8 @@ Chosen settings: {'neg_ratio': 4, 'n_estimators': 50, 'min_samples_leaf': 20}
 350/500 species done
 400/500 species done
 450/500 species done
-Threshold chosen on validation: baseline t=0.9, climate t=0.9
-WARNING: the baseline threshold is at the edge of THRESHOLDS (0.9); the best value may lie outside the grid.
-WARNING: the climate threshold is at the edge of THRESHOLDS (0.9); the best value may lie outside the grid.
+Validation mean AP: baseline 0.0862, climate 0.1002
+Threshold chosen on validation (micro F1): baseline t=0.7, climate t=0.6
 Alignment check (test): corr(BIO1, |latitude|) = -0.886
 Test species not in training data (not scored): 0
 
@@ -92,49 +92,79 @@ Training sightings at sea locations: 507 of 147640
 ##### TEST SET: LAND ONLY #####
 
 --- Baseline: lat/lon only ---
-t=0.5    predicted positives=2970026   micro P=0.367 R=0.821 F1=0.507 | macro F1=0.455
-t=0.6    predicted positives=2192731   micro P=0.460 R=0.760 F1=0.573 | macro F1=0.513
-t=0.7    predicted positives=1608141   micro P=0.546 R=0.663 F1=0.599 | macro F1=0.553
-t=0.8    predicted positives=1075293   micro P=0.645 R=0.523 F1=0.578 | macro F1=0.549
-t=0.9    predicted positives=438775    micro P=0.783 R=0.259 F1=0.389 | macro F1=0.407
+t=0.001  predicted positives=10464960  micro P=0.124 R=0.975 F1=0.219 | macro F1=0.173
+t=0.002  predicted positives=10290107  micro P=0.126 R=0.975 F1=0.222 | macro F1=0.176
+t=0.005  predicted positives=9430262   micro P=0.136 R=0.969 F1=0.239 | macro F1=0.190
+t=0.01   predicted positives=8515791   micro P=0.150 R=0.961 F1=0.259 | macro F1=0.207
+t=0.02   predicted positives=7248201   micro P=0.173 R=0.947 F1=0.293 | macro F1=0.239
+t=0.05   predicted positives=5344659   micro P=0.226 R=0.909 F1=0.361 | macro F1=0.302
+t=0.1    predicted positives=3944106   micro P=0.285 R=0.848 F1=0.426 | macro F1=0.370
+t=0.2    predicted positives=2396912   micro P=0.407 R=0.735 F1=0.524 | macro F1=0.451
+t=0.3    predicted positives=1622554   micro P=0.516 R=0.632 F1=0.568 | macro F1=0.499
+t=0.4    predicted positives=1161755   micro P=0.606 R=0.531 F1=0.566 | macro F1=0.521
+t=0.5    predicted positives=832702    micro P=0.674 R=0.423 F1=0.520 | macro F1=0.512
+t=0.6    predicted positives=579324    micro P=0.718 R=0.314 F1=0.437 | macro F1=0.468
+t=0.7    predicted positives=362700    micro P=0.768 R=0.210 F1=0.330 | macro F1=0.397
+t=0.8    predicted positives=191768    micro P=0.808 R=0.117 F1=0.204 | macro F1=0.297
+t=0.9    predicted positives=71045     micro P=0.803 R=0.043 F1=0.082 | macro F1=0.162
 
 --- lat/lon + climate + sea flag ---
-t=0.5    predicted positives=3828463   micro P=0.268 R=0.775 F1=0.399 | macro F1=0.421
-t=0.6    predicted positives=2546509   micro P=0.354 R=0.681 F1=0.466 | macro F1=0.466
-t=0.7    predicted positives=1550195   micro P=0.476 R=0.557 F1=0.514 | macro F1=0.488
-t=0.8    predicted positives=862450    micro P=0.591 R=0.384 F1=0.466 | macro F1=0.453
-t=0.9    predicted positives=326911    micro P=0.725 R=0.179 F1=0.287 | macro F1=0.302
+t=0.001  predicted positives=23873621  micro P=0.055 R=0.989 F1=0.104 | macro F1=0.091
+t=0.002  predicted positives=23491344  micro P=0.056 R=0.989 F1=0.106 | macro F1=0.093
+t=0.005  predicted positives=21267774  micro P=0.061 R=0.983 F1=0.115 | macro F1=0.101
+t=0.01   predicted positives=18676963  micro P=0.069 R=0.975 F1=0.129 | macro F1=0.113
+t=0.02   predicted positives=15266961  micro P=0.083 R=0.960 F1=0.153 | macro F1=0.134
+t=0.05   predicted positives=10195334  micro P=0.119 R=0.915 F1=0.211 | macro F1=0.191
+t=0.1    predicted positives=6557898   micro P=0.171 R=0.847 F1=0.285 | macro F1=0.273
+t=0.2    predicted positives=3385913   micro P=0.279 R=0.713 F1=0.401 | macro F1=0.396
+t=0.3    predicted positives=2055638   micro P=0.374 R=0.580 F1=0.455 | macro F1=0.454
+t=0.4    predicted positives=1351026   micro P=0.446 R=0.454 F1=0.450 | macro F1=0.459
+t=0.5    predicted positives=862322    micro P=0.519 R=0.338 F1=0.409 | macro F1=0.430
+t=0.6    predicted positives=550920    micro P=0.567 R=0.236 F1=0.333 | macro F1=0.377
+t=0.7    predicted positives=302513    micro P=0.635 R=0.145 F1=0.236 | macro F1=0.300
+t=0.8    predicted positives=151796    micro P=0.651 R=0.075 F1=0.134 | macro F1=0.209
+t=0.9    predicted positives=48849     micro P=0.725 R=0.027 F1=0.052 | macro F1=0.107
 
 ##### TEST SET: LAND + SEA #####
 
 --- Baseline: lat/lon only ---
-t=0.5    predicted positives=10854906  micro P=0.124 R=0.791 F1=0.215 | macro F1=0.232
-t=0.6    predicted positives=7017065   micro P=0.175 R=0.720 F1=0.282 | macro F1=0.287
-t=0.7    predicted positives=4461370   micro P=0.233 R=0.609 F1=0.337 | macro F1=0.348
-t=0.8    predicted positives=2354979   micro P=0.336 R=0.464 F1=0.390 | macro F1=0.396
-t=0.9    predicted positives=813477    micro P=0.490 R=0.234 F1=0.316 | macro F1=0.334
+t=0.001  predicted positives=43438447  micro P=0.038 R=0.979 F1=0.074 | macro F1=0.056
+t=0.002  predicted positives=42776442  micro P=0.039 R=0.978 F1=0.075 | macro F1=0.057
+t=0.005  predicted positives=39494964  micro P=0.042 R=0.973 F1=0.081 | macro F1=0.062
+t=0.01   predicted positives=35827261  micro P=0.046 R=0.966 F1=0.088 | macro F1=0.069
+t=0.02   predicted positives=31010434  micro P=0.052 R=0.952 F1=0.099 | macro F1=0.081
+t=0.05   predicted positives=23195633  micro P=0.067 R=0.915 F1=0.125 | macro F1=0.111
+t=0.1    predicted positives=17145970  micro P=0.085 R=0.854 F1=0.155 | macro F1=0.154
+t=0.2    predicted positives=9907631   micro P=0.129 R=0.751 F1=0.221 | macro F1=0.224
+t=0.3    predicted positives=6149475   micro P=0.178 R=0.641 F1=0.278 | macro F1=0.285
+t=0.4    predicted positives=3905528   micro P=0.238 R=0.545 F1=0.331 | macro F1=0.333
+t=0.5    predicted positives=2228336   micro P=0.340 R=0.445 F1=0.386 | macro F1=0.359
+t=0.6    predicted positives=1422852   micro P=0.410 R=0.342 F1=0.373 | macro F1=0.356
+t=0.7    predicted positives=815043    micro P=0.489 R=0.234 F1=0.316 | macro F1=0.324
+t=0.8    predicted positives=383818    micro P=0.602 R=0.135 F1=0.221 | macro F1=0.258
+t=0.9    predicted positives=141574    micro P=0.719 R=0.060 F1=0.110 | macro F1=0.147
 
 --- lat/lon + climate + sea flag ---
-t=0.5    predicted positives=15547707  micro P=0.089 R=0.808 F1=0.160 | macro F1=0.205
-t=0.6    predicted positives=9703941   micro P=0.126 R=0.715 F1=0.214 | macro F1=0.263
-t=0.7    predicted positives=5431445   micro P=0.184 R=0.587 F1=0.281 | macro F1=0.313
-t=0.8    predicted positives=2655112   micro P=0.265 R=0.412 F1=0.322 | macro F1=0.328
-t=0.9    predicted positives=881797    micro P=0.390 R=0.201 F1=0.266 | macro F1=0.252
+t=0.001  predicted positives=97863019  micro P=0.017 R=0.991 F1=0.034 | macro F1=0.029
+t=0.002  predicted positives=96683740  micro P=0.017 R=0.991 F1=0.034 | macro F1=0.029
+t=0.005  predicted positives=89277230  micro P=0.019 R=0.987 F1=0.037 | macro F1=0.031
+t=0.01   predicted positives=80104342  micro P=0.021 R=0.981 F1=0.041 | macro F1=0.034
+t=0.02   predicted positives=67259085  micro P=0.025 R=0.969 F1=0.048 | macro F1=0.040
+t=0.05   predicted positives=46242708  micro P=0.034 R=0.933 F1=0.066 | macro F1=0.057
+t=0.1    predicted positives=29291982  micro P=0.051 R=0.879 F1=0.097 | macro F1=0.090
+t=0.2    predicted positives=14039264  micro P=0.094 R=0.771 F1=0.167 | macro F1=0.170
+t=0.3    predicted positives=7687014   micro P=0.147 R=0.660 F1=0.240 | macro F1=0.242
+t=0.4    predicted positives=4571976   micro P=0.207 R=0.554 F1=0.301 | macro F1=0.290
+t=0.5    predicted positives=2743467   micro P=0.283 R=0.454 F1=0.349 | macro F1=0.306
+t=0.6    predicted positives=1670137   micro P=0.365 R=0.358 F1=0.361 | macro F1=0.290
+t=0.7    predicted positives=943720    micro P=0.453 R=0.250 F1=0.322 | macro F1=0.246
+t=0.8    predicted positives=473663    micro P=0.529 R=0.147 F1=0.230 | macro F1=0.180
+t=0.9    predicted positives=152134    micro P=0.665 R=0.059 F1=0.109 | macro F1=0.096
 
 === Test results at the threshold chosen on validation ===
-LAND ONLY    | Baseline (lat/lon)  : t=0.9  micro P=0.7825  R=0.2590  F1=0.3892  macro F1=0.4069
-LAND ONLY    | Climate + sea flag  : t=0.9  micro P=0.7248  R=0.1787  F1=0.2868  macro F1=0.3025
-LAND + SEA   | Baseline (lat/lon)  : t=0.9  micro P=0.4901  R=0.2336  F1=0.3164  macro F1=0.3342
-LAND + SEA   | Climate + sea flag  : t=0.9  micro P=0.3898  R=0.2014  F1=0.2656  macro F1=0.2521
+LAND ONLY    | Baseline (lat/lon)  : t=0.7  micro P=0.7678  R=0.2101  F1=0.3299  macro F1=0.3972
+LAND ONLY    | Climate + sea flag  : t=0.6  micro P=0.5668  R=0.2356  F1=0.3328  macro F1=0.3767
+LAND + SEA   | Baseline (lat/lon)  : t=0.7  micro P=0.4891  R=0.2336  F1=0.3162  macro F1=0.3244
+LAND + SEA   | Climate + sea flag  : t=0.6  micro P=0.3654  R=0.3576  F1=0.3615  macro F1=0.2903
 
 ##### PER-LOCATION METRICS, TEST LAND ONLY (same measures as random_forest.py) #####
-
---- Baseline: lat/lon only: land locations ---
-Mean AP per species: 0.6379
-F1 with perfect counts: 0.5866
-t         sample F1  count MAE  count corr
-0.5          0.5051     19.739      0.3669
-0.6          0.5393     11.778      0.5445
-0.7          0.5525      7.703      0.6327
-0.8          0.5222      6.790      0.7016
-0.9          0.3374     11.036      0.6914

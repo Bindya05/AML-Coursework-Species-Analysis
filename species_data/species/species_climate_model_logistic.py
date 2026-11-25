@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
-from iterstrat.ml_stratifiers import MultilabelStratifiedShuffleSplit
 from sklearn.base import BaseEstimator
+from sklearn.model_selection import GroupShuffleSplit
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import average_precision_score
 from sklearn.pipeline import Pipeline
@@ -10,12 +10,14 @@ from sklearn.ensemble import RandomForestClassifier
 import sys
 import os
 import contextlib
+import traceback
 import warnings
 
-# Hide the scikit-learn parallel warning.
-# The environment setting reaches the forest's worker processes; the filter covers the main process.
-os.environ['PYTHONWARNINGS'] = 'ignore:`sklearn.utils.parallel.delayed` should be used with:UserWarning'
-warnings.filterwarnings('ignore', message='.*should be used with.*Parallel.*')
+# Hide all warnings, so they are not printed to the terminal or the results file.
+# The environment setting also covers the forest's worker processes, which start after this line.
+# Real errors are not warnings: they still stop the run and their traceback is printed and saved.
+os.environ['PYTHONWARNINGS'] = 'ignore'
+warnings.simplefilter('ignore')
 
 # ---- File names -------------------------------------------------------------
 TRAIN_FILE = 'species_train_clean_all.npz'
@@ -28,10 +30,15 @@ VALIDATION_FRACTION = 1 / 8   # share of training locations held back for valida
 RANDOM_STATE = 42             # fixed seed, so the random split is the same every run
 CHUNK = 20000                 # rows scored at a time, to keep memory down
 CLIMATE_COLS = [f'bio{i}' for i in range(1, 20)] + ['sea']  # 19 bioclim variables + sea flag (1 = sea)
-MODEL = sys.argv[1] if len(sys.argv) > 1 else 'logistic'  # which model to run:
-LOGISTIC_THRESHOLDS = [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.3, 0.5, 0.6, 0.7, 0.8, 0.9]
-RF_THRESHOLDS = [0.5, 0.6, 0.7, 0.8, 0.9]   # forest runs only this range
-THRESHOLDS = RF_THRESHOLDS if MODEL == 'rf' else LOGISTIC_THRESHOLDS
+MODEL = sys.argv[1] if len(sys.argv) > 1 else 'logistic'  # run as: python species_climate_model_logistic.py rf   (or logistic)
+if MODEL not in ('logistic', 'rf'):
+    raise SystemExit(f"Unknown model '{MODEL}': run with 'logistic' or 'rf'.")
+BLOCK_DEG = 10                # block size in degrees for the spatial validation split
+
+# One threshold grid for BOTH models, so the thresholds mean the same kind of thing for each.
+THRESHOLDS = [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+
+LOGISTIC_NEG_RATIO = 4        # negatives sampled per positive for the logistic model, same default as the forest
 RF_GRID = [
     dict(neg_ratio=4, n_estimators=50,  min_samples_leaf=5),   # current settings
     dict(neg_ratio=2, n_estimators=50,  min_samples_leaf=5),
@@ -47,27 +54,41 @@ RF_GRID = [
 class PerSpeciesLogistic(BaseEstimator):
     """One logistic regression per species. Each column of Y is one species."""
 
-    def __init__(self, C=10.0, max_iter=1000):
+    def __init__(self, C=1.0, max_iter=1000, neg_ratio=4):
         self.C = C                  # regularisation strength (smaller = simpler model)
         self.max_iter = max_iter    # maximum optimiser steps per species
+        self.neg_ratio = neg_ratio  # negatives sampled per positive, as in the forest
 
     def fit(self, X, Y):
         # Fit one classifier per species. Written as a plain loop because
         # sklearn's OneVsRestClassifier gave different species identical weights in our run.
-        self.models_ = [
-            LogisticRegression(C=self.C, solver='lbfgs', max_iter=self.max_iter).fit(X, Y[:, j])
-            for j in range(Y.shape[1])
-        ]
+        # Each species is fitted on its positive locations plus a random sample of other locations, as the forest does.
+        rng = np.random.default_rng(0)
+        self.models_ = []
+        for j in range(Y.shape[1]):
+            positives = np.where(Y[:, j] == 1)[0]
+            if len(positives) == 0:
+                self.models_.append(None)      # no sightings in the fitting split
+                continue
+            others = np.where(Y[:, j] == 0)[0]
+            negatives = rng.choice(others, size=min(self.neg_ratio * len(positives), len(others)), replace=False)
+            idx = np.concatenate([positives, negatives])
+            y = np.concatenate([np.ones(len(positives)), np.zeros(len(negatives))])
+            self.models_.append(
+                LogisticRegression(C=self.C, solver='lbfgs', max_iter=self.max_iter).fit(X[idx], y)
+            )
         return self
 
     def predict_proba(self, X):
         # For each species, the probability of "present" at each row, stacked into columns.
-        return np.column_stack([m.predict_proba(X)[:, 1] for m in self.models_])
-
+        return np.column_stack([m.predict_proba(X)[:, 1] if m is not None else np.zeros(len(X))
+                                for m in self.models_])
 
 
 class PerSpeciesRF(BaseEstimator):
-    """One random forest per species: its locations (1) vs a random sample of other locations (0)."""
+    """One random forest per species: its locations (1) vs a random sample of other locations (0).
+    Negatives are sampled exactly as in the logistic model, and no class weighting is applied,
+    so both models learn from the same sampled distribution and their probabilities are comparable."""
     def __init__(self, neg_ratio=4, n_estimators=50, min_samples_leaf=5):
         self.neg_ratio = neg_ratio
         self.n_estimators = n_estimators
@@ -90,7 +111,7 @@ class PerSpeciesRF(BaseEstimator):
             yj = np.concatenate([np.ones(len(positives)), np.zeros(len(negatives))])
 
             rf = RandomForestClassifier(n_estimators=self.n_estimators, min_samples_leaf=self.min_samples_leaf,
-                                        class_weight='balanced', n_jobs=-1, random_state=0)
+                                        n_jobs=-1, random_state=0)
             self.models_.append(rf.fit(Xj, yj))
         return self
 
@@ -99,14 +120,13 @@ class PerSpeciesRF(BaseEstimator):
                                 for m in self.models_])
 
 
-
 def make_model(params=None):
-    """Scale the inputs to a common size, then fit one logistic regression per species."""
+    """Scale the inputs (logistic only), then fit one model per species."""
     if MODEL == 'rf':
         return PerSpeciesRF(**(params or RF_GRID[0]))
     return Pipeline([
         ('scaler', StandardScaler()),
-        ('classifier', PerSpeciesLogistic(C=1.0, max_iter=1000)),
+        ('classifier', PerSpeciesLogistic(C=1.0, max_iter=1000, neg_ratio=LOGISTIC_NEG_RATIO)),
     ])
 
 
@@ -126,12 +146,13 @@ def load_climate(path, n_rows):
 
 def check_alignment(name, locs, climate):
     """Sanity check that the climate rows line up with the locations.
-    Temperature falls away from the equator, so the correlation with |latitude| should be
-    strongly negative. If it isn't, the rows are probably in the wrong order."""
+    Temperature falls away from the equator, so the correlation of BIO1 with |latitude| should be
+    negative. The value is always printed. A WARNING is raised only if the correlation is zero or
+    positive, which cannot happen for correctly aligned rows."""
     r = np.corrcoef(climate[:, 0], np.abs(locs[:, 0]))[0, 1]
     print(f"Alignment check ({name}): corr(BIO1, |latitude|) = {r:.3f}")
-    if r > -0.3:
-        print(f"WARNING: the {name} climate rows may not match its locations.")
+    if r >= 0:
+        print(f"WARNING: the {name} climate rows do not match its locations (expected a negative correlation).")
 
 
 def build_train_table(locs, ids, climate):
@@ -167,7 +188,7 @@ def build_train_table(locs, ids, climate):
     grouped = clim_df.groupby(['lat', 'lon'])[CLIMATE_COLS]
     spread = (grouped.max() - grouped.min()).to_numpy().max()
     if spread > 1e-3:
-        print(f"WARNING: sightings at the same location have different climate values "
+        print(f"NOTE: sightings at the same location have different climate values "
               f"(max spread {spread:.4f}). Using the first sighting's values.")
     clim_loc = grouped.first().reindex(Y_df.index)
     if clim_loc.isna().any().any():
@@ -191,15 +212,18 @@ def build_test_labels(test_pos_inds, test_species, train_species, n_test):
 
 
 def split_training_locations(X, Y):
-    """Pick 1/8 of the training locations for validation, and keep the rest for fitting.
-    The split is stratified on the species labels (multilabel), so validation has a similar
-    mix of species to fitting. The seed is fixed, so the same locations are chosen every time."""
-    msss = MultilabelStratifiedShuffleSplit(
-        n_splits=1,
-        test_size=VALIDATION_FRACTION,
-        random_state=RANDOM_STATE,
-    )
-    fit_idx, val_idx = next(msss.split(X, Y))
+    """Pick about 1/8 of the training locations for validation, and keep the rest for fitting.
+    Whole spatial blocks of BLOCK_DEG x BLOCK_DEG degrees go to validation, so every validation
+    site is in a block the model never saw. This tests prediction at new places.
+    The seed is fixed, so the same blocks are chosen every time."""
+    cells = pd.DataFrame({'r': np.floor(X[:, 0] / BLOCK_DEG), 'c': np.floor(X[:, 1] / BLOCK_DEG)})
+    group = cells.groupby(['r', 'c']).ngroup().to_numpy()
+    splitter = GroupShuffleSplit(n_splits=1, test_size=VALIDATION_FRACTION, random_state=RANDOM_STATE)
+    fit_idx, val_idx = next(splitter.split(X, Y, groups=group))
+    # A species with no sightings in the fitting part gets no model and predicts 0 everywhere.
+    n_fit_species = int((Y[fit_idx].sum(axis=0) > 0).sum())
+    print(f"Spatial block split: validation holds {len(val_idx) / len(X):.1%} of locations; "
+          f"{n_fit_species} of {Y.shape[1]} species have sightings in the fitting part.")
     return np.sort(fit_idx), np.sort(val_idx)
 
 
@@ -278,6 +302,14 @@ def predict_all(model, X):
     return np.vstack([model.predict_proba(X[s:s + CHUNK]) for s in range(0, len(X), CHUNK)]).astype(np.float32)
 
 
+def mean_ap(P, Y):
+    """Threshold-free score: average precision per species, averaged over species with at least
+    one sighting in Y. It does not depend on the threshold, so it can compare settings whose
+    probabilities are on different scales."""
+    cols = [j for j in range(Y.shape[1]) if Y[:, j].any()]
+    return float(np.mean([average_precision_score(Y[:, j], P[:, j]) for j in cols]))
+
+
 def sample_f1(pred, Y, occ):
     """F1 for each location, averaged over locations that have at least one sighting."""
     tp = (pred & Y).sum(axis=1)
@@ -316,8 +348,7 @@ def per_location_report(name, P, Y):
     true_n = Y.sum(axis=1)
     occ = true_n > 0
     print(f"\n--- {name}: land locations ---")
-    ap = [average_precision_score(Y[:, j], P[:, j]) for j in range(Y.shape[1]) if Y[:, j].any()]
-    print(f"Mean AP per species: {np.mean(ap):.4f}")
+    print(f"Mean AP per species: {mean_ap(P, Y):.4f}")
     print(f"F1 with perfect counts: {sample_f1(oracle_pred(P, true_n), Y, occ):.4f}")
     print(f"{'t':<8}{'sample F1':>11}{'count MAE':>11}{'count corr':>12}")
     for t in THRESHOLDS:
@@ -325,6 +356,24 @@ def per_location_report(name, P, Y):
         f1 = sample_f1(pred, Y, occ)
         mae, corr = count_metrics(pred, Y)
         print(f"{t:<8}{f1:>11.4f}{mae:>11.3f}{corr:>12.4f}")
+
+
+# ---- Output: one stream to the terminal and the results file -------------------
+
+class Tee:
+    """Writes everything to two streams (the terminal and the results file)."""
+    def __init__(self, *streams):
+        self.streams = streams
+
+    def write(self, text):
+        for s in self.streams:
+            s.write(text)
+            s.flush()
+        return len(text)
+
+    def flush(self):
+        for s in self.streams:
+            s.flush()
 
 
 # ---- Main ---------------------------------------------------------------------
@@ -345,21 +394,21 @@ def main():
     print(f"\nTraining locations: {len(X_latlon)} "
           f"(fitting: {len(fit_idx)}, validation: {len(val_idx)})")
 
-    # Step 4: fit both models on the fitting locations only
+    # Step 4: fit the models on the fitting locations only
     X_base = X_latlon
     X_clim_all = np.hstack([X_latlon, X_clim])
 
     if MODEL == 'rf':
-        # Tune on validation: fit each setting on the fitting locations, keep the best by micro F1
+        # Tune on validation: fit each setting on the fitting locations, keep the best by mean AP.
+        # Mean AP does not depend on the threshold, so the choice is not affected by the probability scale.
         best = None
         for params in RF_GRID:
             m = make_model(params).fit(X_clim_all[fit_idx], Y[fit_idx])
-            rows = report('', *score_both(m, X_clim_all[val_idx], Y[val_idx], sea_loc[val_idx])['all'], show=False)
-            f1_val = max(r[1] for r in rows)
-            print(f"{params} validation micro F1 = {f1_val:.4f} at t={best_threshold(rows)}")
-            if best is None or f1_val > best[0]:
-                best = (f1_val, params, m)
-        print(f"Chosen settings: {best[1]}")
+            ap = mean_ap(predict_all(m, X_clim_all[val_idx]), Y[val_idx])
+            print(f"{params} validation mean AP = {ap:.4f}")
+            if best is None or ap > best[0]:
+                best = (ap, params, m)
+        print(f"Chosen settings: {best[1]} (validation mean AP {best[0]:.4f})")
         clim_model = best[2]                        # already fitted, reuse it
         base_model = make_model(best[1]).fit(X_base[fit_idx], Y[fit_idx])
     else:
@@ -376,11 +425,14 @@ def main():
     val_rows_clim = report('Validation: lat/lon + climate + sea flag', *val_clim, show=False)
     t_base = best_threshold(val_rows_base)
     t_clim = best_threshold(val_rows_clim)
-    print(f"Threshold chosen on validation: baseline t={t_base}, climate t={t_clim}")
+    ap_val_base = mean_ap(predict_all(base_model, X_base[val_idx]), Y[val_idx])
+    ap_val_clim = mean_ap(predict_all(clim_model, X_clim_all[val_idx]), Y[val_idx])
+    print(f"Validation mean AP: baseline {ap_val_base:.4f}, climate {ap_val_clim:.4f}")
+    print(f"Threshold chosen on validation (micro F1): baseline t={t_base}, climate t={t_clim}")
     for name, t in [('baseline', t_base), ('climate', t_clim)]:
         if t in (THRESHOLDS[0], THRESHOLDS[-1]):
-            print(f"WARNING: the {name} threshold is at the edge of THRESHOLDS ({t}); "
-                  f"the best value may lie outside the grid.")
+            print(f"NOTE: the best {name} threshold is at the edge of the grid ({t}); "
+                  f"the true optimum may lie outside it.")
 
     # Step 6: the IUCN test set. Nothing about the model is changed after this point.
     test = np.load(TEST_FILE, allow_pickle=True)
@@ -428,11 +480,20 @@ def main():
 
 
 if __name__ == '__main__':
-    if MODEL == 'rf':
-        # Forest results go to a file, so the console stays clean. buffering=1 writes each line as it is printed.
-        print("Running the forest. Progress is written to results_rf.txt")
-        with open('results_rf.txt', 'w', buffering=1) as f, contextlib.redirect_stdout(f):
-            main()
-        print("Forest results written to results_rf.txt")
-    else:
-        main()
+    results_file = f'results_{MODEL}.txt'
+    failed = False
+    with open(results_file, 'w', buffering=1) as f:
+        # Each stream keeps its own real terminal stream: normal output goes to the terminal's stdout,
+        # and warnings, errors and tracebacks go to the terminal's stderr. Both also go to the file.
+        out_tee = Tee(sys.__stdout__, f)
+        err_tee = Tee(sys.__stderr__, f)
+        with contextlib.redirect_stdout(out_tee), contextlib.redirect_stderr(err_tee):
+            try:
+                main()
+            except Exception:
+                failed = True
+                traceback.print_exc()   # written to err_tee: terminal (stderr) and the file
+    if failed:
+        print(f"\nRun stopped with an error (shown above). Output so far saved to {results_file}")
+        sys.exit(1)
+    print(f"\nResults saved to {results_file}")
