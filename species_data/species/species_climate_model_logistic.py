@@ -8,6 +8,11 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.ensemble import RandomForestClassifier
 import sys
+import os
+import contextlib
+
+# Hide the scikit-learn parallel warning. Set in the environment so the forest's worker processes also see it.
+os.environ['PYTHONWARNINGS'] = 'ignore:`sklearn.utils.parallel.delayed` should be used with:UserWarning'
 
 # ---- File names -------------------------------------------------------------
 TRAIN_FILE = 'species_train_clean_all.npz'
@@ -18,10 +23,12 @@ CLIMATE_TEST = 'climate_test_sea.npy'
 # ---- Settings ---------------------------------------------------------------
 VALIDATION_FRACTION = 1 / 8   # share of training locations held back for validation
 RANDOM_STATE = 42             # fixed seed, so the random split is the same every run
-THRESHOLDS = [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.3, 0.5, 0.6, 0.7, 0.8, 0.9]
 CHUNK = 20000                 # rows scored at a time, to keep memory down
 CLIMATE_COLS = [f'bio{i}' for i in range(1, 20)] + ['sea']  # 19 bioclim variables + sea flag (1 = sea)
-MODEL = sys.argv[1] if len(sys.argv) > 1 else 'logistic'  # which model to run: 
+MODEL = sys.argv[1] if len(sys.argv) > 1 else 'logistic'  # which model to run:
+LOGISTIC_THRESHOLDS = [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.3, 0.5, 0.6, 0.7, 0.8, 0.9]
+RF_THRESHOLDS = [0.5, 0.6, 0.7, 0.8, 0.9]   # forest runs only this range
+THRESHOLDS = RF_THRESHOLDS if MODEL == 'rf' else LOGISTIC_THRESHOLDS
 RF_GRID = [
     dict(neg_ratio=4, n_estimators=50,  min_samples_leaf=5),   # current settings
     dict(neg_ratio=2, n_estimators=50,  min_samples_leaf=5),
@@ -334,12 +341,9 @@ def main():
           f"(fitting: {len(fit_idx)}, validation: {len(val_idx)})")
 
     # Step 4: fit both models on the fitting locations only
-    print("Fitting baseline (lat/lon only)...")
     X_base = X_latlon
-    base_model = make_model().fit(X_base[fit_idx], Y[fit_idx])
-    print("Fitting climate model (lat/lon + bioclim + sea flag)...")
     X_clim_all = np.hstack([X_latlon, X_clim])
-    
+
     if MODEL == 'rf':
         # Tune on validation: fit each setting on the fitting locations, keep the best by micro F1
         best = None
@@ -347,9 +351,7 @@ def main():
             m = make_model(params).fit(X_clim_all[fit_idx], Y[fit_idx])
             rows = report('', *score_both(m, X_clim_all[val_idx], Y[val_idx], sea_loc[val_idx])['all'], show=False)
             f1_val = max(r[1] for r in rows)
-            t_best = best_threshold(rows)
-            edge = '  (top of grid: optimum may be higher)' if t_best == THRESHOLDS[-1] else ''
-            print(f"{params} best validation micro F1 = {f1_val:.4f} at t={t_best} (best within grid){edge}")
+            print(f"{params} validation micro F1 = {f1_val:.4f} at t={best_threshold(rows)}")
             if best is None or f1_val > best[0]:
                 best = (f1_val, params, m)
         print(f"Chosen settings: {best[1]}")
@@ -421,4 +423,10 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    if MODEL == 'rf':
+        # Forest results go to a file, so the console stays clean
+        with open('results_rf.txt', 'w') as f, contextlib.redirect_stdout(f):
+            main()
+        print("Forest results written to results_rf.txt")
+    else:
+        main()

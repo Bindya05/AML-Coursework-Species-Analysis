@@ -11,6 +11,8 @@ Test locations: 288122 (land: 85661, sea: 202461)
 True sightings: land 1325753, sea 380893, total 1706646
 Training sightings at sea locations: 507 of 147640
 
+C = 1
+
 ##### TEST SET: LAND ONLY #####
 
 --- Baseline: lat/lon only ---
@@ -124,3 +126,11 @@ t         sample F1  count MAE  count corr
 0.7          0.0171     16.913     -0.3339
 0.8          0.0112     16.744     -0.3199
 0.9          0.0074     16.524     -0.3051
+
+
+
+
+
+
+
+
