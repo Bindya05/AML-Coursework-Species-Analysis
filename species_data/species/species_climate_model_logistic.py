@@ -10,9 +10,12 @@ from sklearn.ensemble import RandomForestClassifier
 import sys
 import os
 import contextlib
+import warnings
 
-# Hide the scikit-learn parallel warning. Set in the environment so the forest's worker processes also see it.
+# Hide the scikit-learn parallel warning.
+# The environment setting reaches the forest's worker processes; the filter covers the main process.
 os.environ['PYTHONWARNINGS'] = 'ignore:`sklearn.utils.parallel.delayed` should be used with:UserWarning'
+warnings.filterwarnings('ignore', message='.*should be used with.*Parallel.*')
 
 # ---- File names -------------------------------------------------------------
 TRAIN_FILE = 'species_train_clean_all.npz'
@@ -327,6 +330,8 @@ def per_location_report(name, P, Y):
 # ---- Main ---------------------------------------------------------------------
 
 def main():
+    print(f"Model: {MODEL}  threshold grid: {THRESHOLDS}")
+
     # Step 1-2: training data, as one row per location
     data = np.load(TRAIN_FILE)
     locs, ids = data['train_locs'], data['train_ids']
@@ -424,8 +429,9 @@ def main():
 
 if __name__ == '__main__':
     if MODEL == 'rf':
-        # Forest results go to a file, so the console stays clean
-        with open('results_rf.txt', 'w') as f, contextlib.redirect_stdout(f):
+        # Forest results go to a file, so the console stays clean. buffering=1 writes each line as it is printed.
+        print("Running the forest. Progress is written to results_rf.txt")
+        with open('results_rf.txt', 'w', buffering=1) as f, contextlib.redirect_stdout(f):
             main()
         print("Forest results written to results_rf.txt")
     else:
